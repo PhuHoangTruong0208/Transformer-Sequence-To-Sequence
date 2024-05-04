@@ -19,7 +19,7 @@ def compute_qkv(q, k, v, mask):
         scaled = scaled.permute(1, 0, 2, 3)
     attention = F.softmax(input=scaled, dim=-1)
     values = torch.matmul(input=attention, other=v)
-    return values.to(device), attention.to(device)
+    return values, attention
 
 # mã hóa vị trí giúp các vector tokens chứa các mã hóa vị trí giúp mô hình nhớ được vị trí của từng từ
 def position_encoding(d_model, max_sequence_length):
@@ -29,7 +29,7 @@ def position_encoding(d_model, max_sequence_length):
     even_PE = torch.sin(position / denominator)
     odd_PE = torch.cos(position / denominator)
     stacked = torch.stack([even_PE, odd_PE], dim=2)
-    return stacked.reshape(max_sequence_length, d_model).to(device)
+    return stacked.reshape(max_sequence_length, d_model)
 
 # tính toán giá trị chú ý của đầu vào (dùng trong cả encoder và decoder)
 class MultiheadAttention(nn.Module):
@@ -39,8 +39,8 @@ class MultiheadAttention(nn.Module):
         self.d_model = d_model
         self.num_heads = num_heads
         self.head_dims = d_model // num_heads
-        self.qkv_linear = nn.Linear(in_features=d_model, out_features=3 * d_model)
-        self.out_linear = nn.Linear(in_features=d_model, out_features=d_model)
+        self.qkv_linear = nn.Linear(in_features=d_model, out_features=3 * d_model).to(device)
+        self.out_linear = nn.Linear(in_features=d_model, out_features=d_model).to(device)
 
     def forward(self, x, mask):
         batch_size, max_sequence_length, input_dims = x.size()
@@ -51,7 +51,7 @@ class MultiheadAttention(nn.Module):
         values, attention = compute_qkv(q, k, v, mask)
         values = values.permute(0, 2, 1, 3).reshape(batch_size, max_sequence_length, self.d_model)
         out = self.out_linear(values)
-        return out.to(device)
+        return out
     
 
 # tính toán giá trị chú ý của (một phần của decoder) nó sẽ dùng output của encoder để tính toán
@@ -63,9 +63,9 @@ class MultiheadCrossAttention(nn.Module):
         self.d_model = d_model
         self.num_heads = num_heads
         self.head_dims = d_model // num_heads
-        self.q_linear = nn.Linear(in_features=d_model, out_features=d_model)
-        self.kv_linear = nn.Linear(in_features=d_model, out_features=2 * d_model)
-        self.out_linear = nn.Linear(in_features=d_model, out_features=d_model)
+        self.q_linear = nn.Linear(in_features=d_model, out_features=d_model).to(device)
+        self.kv_linear = nn.Linear(in_features=d_model, out_features=2 * d_model).to(device)
+        self.out_linear = nn.Linear(in_features=d_model, out_features=d_model).to(device)
 
     def forward(self, x, y, mask):
         batch_size, max_sequence_length, d_model = x.size()
@@ -79,7 +79,7 @@ class MultiheadCrossAttention(nn.Module):
         values, attention = compute_qkv(q, k, v, mask)
         values = values.permute(0, 2, 1, 3).reshape(batch_size, max_sequence_length, d_model)
         out = self.out_linear(values)
-        return out.to(device)
+        return out
 
 # batch_size = 30
 # max_sequence_length = 200
@@ -93,9 +93,9 @@ class MultiheadCrossAttention(nn.Module):
 class PositionwiseFeedForward(nn.Module):
     def __init__(self, d_model, ffn_hidden, dropout):
         super().__init__()
-        self.linear1 = nn.Linear(in_features=d_model, out_features=ffn_hidden)
+        self.linear1 = nn.Linear(in_features=d_model, out_features=ffn_hidden).to(device)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(in_features=ffn_hidden, out_features=d_model)
+        self.linear2 = nn.Linear(in_features=ffn_hidden, out_features=d_model).to(device)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -131,7 +131,7 @@ class SentenceEmbedding(nn.Module):
             for _ in range(self.max_sequence_lenght - len(tokens_sentence)):
                 tokens_sentence.append(self.char_to_index[self.PADDING_TOKEN])
             # print(len(tokens_sentence))
-            return torch.tensor(tokens_sentence).to(device)
+            return torch.tensor(tokens_sentence)
         
         tokenized = []
         for sentence in batch:
@@ -142,8 +142,8 @@ class SentenceEmbedding(nn.Module):
     def forward(self, x, start_token, end_token):
         x = self.batch_tokenize(x, start_token, end_token)
         x = self.embedding(x)
-        x = self.dropout(x + position_encoding(self.d_model, self.max_sequence_lenght))
-        return x.to(device)
+        x = self.dropout(x + position_encoding(self.d_model, self.max_sequence_lenght).to(device))
+        return x
 
 # x = ("hello", "what is your name?")
 # index_to = dict(enumerate(["h", "e", "l", "o", "w", "a", "t", "y", "o", "u", "r", "n", "m", "e", "?", " ", "i", "s"]+["<s>", "<e>", "<p>"]))
@@ -192,10 +192,10 @@ class EncoderLayer(nn.Module):
         super().__init__()
         self.attention = MultiheadAttention(d_model=d_model, num_heads=num_heads)
         self.dropout1 = nn.Dropout(p=dropout)
-        self.layernorm1 = LayerNorm(normalized_shape=d_model)
+        self.layernorm1 = LayerNorm(normalized_shape=d_model).to(device)
         self.ffn = PositionwiseFeedForward(d_model=d_model, ffn_hidden=ffn_hidden, dropout=dropout)
         self.dropout2 = nn.Dropout(p=dropout)
-        self.layernorm2 = LayerNorm(normalized_shape=d_model)
+        self.layernorm2 = LayerNorm(normalized_shape=d_model).to(device)
     
     def forward(self, x, encoder_mask):
         pre_x = x.clone()
@@ -251,13 +251,13 @@ class DecoderLayer(nn.Module):
         super().__init__()
         self.attention = MultiheadAttention(d_model=d_model, num_heads=num_heads)
         self.dropout1 = nn.Dropout(p=dropout)
-        self.layernorm1 = LayerNorm(normalized_shape=d_model)
+        self.layernorm1 = LayerNorm(normalized_shape=d_model).to(device)
         self.cross_attention = MultiheadCrossAttention(d_model=d_model, num_heads=num_heads)
         self.dropout2 = nn.Dropout(p=dropout)
-        self.layernorm2 = LayerNorm(normalized_shape=d_model)
+        self.layernorm2 = LayerNorm(normalized_shape=d_model).to(device)
         self.ffn = PositionwiseFeedForward(d_model=d_model, ffn_hidden=ffn_hidden, dropout=dropout)
         self.dropout3 = nn.Dropout(p=dropout)
-        self.layernorm3 = LayerNorm(normalized_shape=d_model)
+        self.layernorm3 = LayerNorm(normalized_shape=d_model).to(device)
     
     def forward(self, x, y, decoder_mask, decoder_cross_mask):
         pre_y = y.clone()
@@ -374,9 +374,9 @@ class PreprocessingConversations:
         self.get_index = GetIndex()
 
     def read_file(self):
-        with open(file="transformers/questions.txt", mode="r", encoding="utf-8") as file:
+        with open(file="questions.txt", mode="r", encoding="utf-8") as file:
             source_sentences = file.read().splitlines()
-        with open(file="transformers/answers.txt", mode="r", encoding="utf-8") as file:
+        with open(file="answers.txt", mode="r", encoding="utf-8") as file:
             target_sentences = file.read().splitlines()
         source_sentences = source_sentences[:self.limit_total_sentence]
         target_sentences = target_sentences[:self.limit_total_sentence]
@@ -515,7 +515,7 @@ class TransformersTraining:
             print(next_token, end="", flush=True)
         print()
 
-transformers = TransformersTraining(num_heads=8, num_layers=1, d_model=256, ffn_hidden=512, dropout=0.01, epochs=100)
+transformers = TransformersTraining(num_heads=8, num_layers=10, d_model=512, ffn_hidden=2048, dropout=0.01, epochs=100)
 transformers.training()
 while True:
     user_input = input("bạn : ")
